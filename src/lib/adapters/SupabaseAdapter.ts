@@ -1,71 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Intent } from '../openai';
+import type { Connection } from '../../store/chatStore';
 
 interface TableSchema {
     name: string;
     columns: string[];
 }
 
-interface ConnectionConfig {
-    url: string;
-    key: string;
-    schema?: TableSchema[];
-}
-
-export async function fetchSchema(client: any) {
-    try {
-        // Method 1: Swagger / OpenAPI Spec (Best for "Zero Config")
-        // Supabase exposes a swagger definition at the root of the REST API.
-        const restUrl = `${client.supabaseUrl}/rest/v1/?apikey=${client.supabaseKey}`;
-        const response = await fetch(restUrl);
-
-        if (response.ok) {
-            const swagger = await response.json();
-            return Object.keys(swagger.definitions).map(def => ({
-                name: def,
-                columns: Object.keys(swagger.definitions[def].properties)
-            }));
-        }
-    } catch (e) {
-        console.warn("Schema fetch via Swagger failed:", e);
-    }
-
-    // Method 2: Probe for common tables (Fallback)
-    // If Swagger fails (e.g., CORS or disabled), try to select 1 row from known tables to get columns.
-    const knownTables = ['users', 'orders', 'subscriptions', 'products', 'customers', 'trades', 'payments'];
-    const discoveredSchema: TableSchema[] = [];
-
-    for (const tableName of knownTables) {
-        try {
-            const { data, error } = await client.from(tableName).select('*').limit(1);
-            if (!error) {
-                // Even if empty, if no error, the table exists. 
-                // If we have data, we get columns. If not, we assume standard columns or empty.
-                const columns = (data && data.length > 0) ? Object.keys(data[0]) : [];
-                discoveredSchema.push({ name: tableName, columns });
-            }
-        } catch (ignore) { }
-    }
-
-    if (discoveredSchema.length > 0) return discoveredSchema;
-
-    // Last Resort: Return hardcoded basic schema to prevent UI crashes
-    return [
-        { name: 'users', columns: ['id', 'email', 'status', 'created_at'] },
-        { name: 'orders', columns: ['id', 'user_id', 'amount', 'status', 'created_at'] },
-        { name: 'subscriptions', columns: ['id', 'user_id', 'plan', 'revenue', 'created_at'] }
-    ];
-}
-
-export async function processIntent(intent: Intent, connection?: ConnectionConfig) {
+export async function processIntent(intent: Intent, connection: Connection) {
     console.log("Processing Adapter Intent:", intent);
 
-    if (!connection?.url || !connection?.key) {
-        throw new Error("No database connected. Please connect a Supabase database first.");
+    if (connection.provider !== 'supabase' || !connection.supabaseUrl || !connection.supabaseKey) {
+        throw new Error("Invalid Supabase connection.");
     }
 
     // Create dynamic client 
-    const client = createClient(connection.url, connection.key);
+    const client = createClient(connection.supabaseUrl, connection.supabaseKey);
 
     switch (intent.type) {
         case 'VIEW_LIST':
@@ -154,7 +104,7 @@ async function handleMetric(intent: Intent, client: any) {
 }
 
 async function handleComparison(intent: Intent, client: any, schema?: TableSchema[]) {
-    const { entity, metric, timeframe } = intent;
+    const { entity, metric } = intent;
     // Dynamic Grouping Logic
     // If schema is present, we can try to find a categorical column to group by if not specified.
     // For "Revenue by plan", entity=subscriptions, metric=revenue. 
@@ -211,4 +161,49 @@ async function handleComparison(intent: Intent, client: any, schema?: TableSchem
         xKey: 'name',
         yKey: 'value'
     };
+}
+
+export async function fetchSchema(client: any) {
+    try {
+        // Method 1: Swagger / OpenAPI Spec (Best for "Zero Config")
+        // Supabase exposes a swagger definition at the root of the REST API.
+        const restUrl = `${client.supabaseUrl}/rest/v1/?apikey=${client.supabaseKey}`;
+        const response = await fetch(restUrl);
+
+        if (response.ok) {
+            const swagger = await response.json();
+            return Object.keys(swagger.definitions).map(def => ({
+                name: def,
+                columns: Object.keys(swagger.definitions[def].properties)
+            }));
+        }
+    } catch (e) {
+        console.warn("Schema fetch via Swagger failed:", e);
+    }
+
+    // Method 2: Probe for common tables (Fallback)
+    // If Swagger fails (e.g., CORS or disabled), try to select 1 row from known tables to get columns.
+    const knownTables = ['users', 'orders', 'subscriptions', 'products', 'customers', 'trades', 'payments'];
+    const discoveredSchema: TableSchema[] = [];
+
+    for (const tableName of knownTables) {
+        try {
+            const { data, error } = await client.from(tableName).select('*').limit(1);
+            if (!error) {
+                // Even if empty, if no error, the table exists. 
+                // If we have data, we get columns. If not, we assume standard columns or empty.
+                const columns = (data && data.length > 0) ? Object.keys(data[0]) : [];
+                discoveredSchema.push({ name: tableName, columns });
+            }
+        } catch (ignore) { }
+    }
+
+    if (discoveredSchema.length > 0) return discoveredSchema;
+
+    // Last Resort: Return hardcoded basic schema to prevent UI crashes
+    return [
+        { name: 'users', columns: ['id', 'email', 'status', 'created_at'] },
+        { name: 'orders', columns: ['id', 'user_id', 'amount', 'status', 'created_at'] },
+        { name: 'subscriptions', columns: ['id', 'user_id', 'plan', 'revenue', 'created_at'] }
+    ];
 }

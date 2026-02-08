@@ -80,6 +80,8 @@ export async function determineUI(intent: any, data: any, apiKey?: string): Prom
 
         return instructions.map((i: any, idx: number) => ({
             ...i,
+            // Normalize: AI sometimes uses 'type' instead of 'component'
+            component: i.component || i.type,
             id: i.id || `gen-${Date.now()}-${idx}`
         })) as UIInstruction[];
 

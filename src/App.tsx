@@ -37,12 +37,35 @@ function App() {
     setProcessing(true);
 
     try {
-      // 1. Understand Intent
-      const intent = await classifyIntent(userMsg, connection.openaiKey, connection.schema);
+      // ONBOARDING: If this is the first message after connect, save as business context
+      if (!connection.onboardingComplete) {
+        const { setBusinessContext } = useChatStore.getState();
+        setBusinessContext(userMsg);
+
+        addMessage({
+          id: (Date.now() + 1).toString(),
+          role: 'ai',
+          content: `Got it! I'll remember that context. Now you can ask me anything about your data. Try: "Count of ${connection.schema?.[0]?.name || 'records'}" or "List recent ${connection.schema?.[0]?.name || 'items'}"`,
+          timestamp: Date.now()
+        });
+        setProcessing(false);
+        return;
+      }
+
+      // 1. Understand Intent (with business context)
+      const intent = await classifyIntent(userMsg, connection.openaiKey, connection.schema, connection.businessContext);
       console.log("Intent:", intent);
 
       // 2. Fetch Data
-      const data = await processIntent(intent, connection);
+      let data;
+      if (connection.provider === 'zoho') {
+        // Dynamic Import to avoid circular deps or heavy loads if not used? No, static is fine for now.
+        // actually we need to import it.
+        const { processZohoIntent } = await import('./lib/adapters/ZohoAdapter');
+        data = await processZohoIntent(intent, connection);
+      } else {
+        data = await processIntent(intent, connection);
+      }
       console.log("Data:", data);
 
       // 3. Generate UI Instructions
@@ -115,7 +138,11 @@ function App() {
             {connection.isConnected
               ? (
                 <span>
-                  Connected: <span className="opacity-75">{connection.url.split('.')[0].replace('https://', '')}</span>
+                  Connected: <span className="opacity-75">
+                    {connection.provider === 'supabase'
+                      ? (connection.supabaseUrl?.split('.')[0].replace('https://', '') || 'Supabase')
+                      : (connection.zohoApiDomain || 'Zoho CRM')}
+                  </span>
                 </span>
               )
               : 'Connect DB'

@@ -59,7 +59,7 @@ interface TableSchema {
     columns: string[];
 }
 
-export async function classifyIntent(input: string, apiKey?: string, schema?: TableSchema[]): Promise<Intent> {
+export async function classifyIntent(input: string, apiKey?: string, schema?: TableSchema[], businessContext?: string): Promise<Intent> {
     try {
         const keyToUse = apiKey || import.meta.env.VITE_OPENAI_API_KEY;
         if (!keyToUse) throw new Error("Missing OpenAI API Key");
@@ -94,9 +94,11 @@ Map them to ONE of these intents:
 
 ${schemaDescription}
 
+${businessContext ? `USER CONTEXT: The user describes their data as: "${businessContext}". Use this to map their query to the correct entity.` : ''}
+
 RULES:
 - ONLY use the entities listed above.
-- If the user asks for "signups", map to "users" (or similar user-table).
+- If user mentions a concept from their context description, map it to the matching entity.
 - If the user asks for "revenue", map to the most relevant table containing revenue/amount.
 - For "ANALYZE_METRIC", the "metric" field MUST be one of: "count", "sum", "avg". Default to "count" if unspecified.
 

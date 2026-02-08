@@ -10,17 +10,30 @@ interface Message {
 }
 
 // Simplified schema for AI context
-interface TableSchema {
+export interface TableSchema {
     name: string;
     columns: string[];
 }
 
-interface Connection {
-    url: string;
-    key: string;
+export type ProviderType = 'supabase' | 'zoho';
+
+export interface Connection {
+    isConnected: boolean;
+    provider: ProviderType;
+
+    // Common
     openaiKey: string;
     schema?: TableSchema[];
-    isConnected: boolean;
+    businessContext?: string; // User's description of their data
+    onboardingComplete: boolean; // Has user described their data?
+
+    // Supabase Specific
+    supabaseUrl?: string;
+    supabaseKey?: string;
+
+    // Zoho Specific
+    zohoAccessToken?: string;
+    zohoApiDomain?: string; // e.g. www.zoho.com, www.zoho.eu
 }
 
 interface ChatStore {
@@ -29,39 +42,72 @@ interface ChatStore {
     connection: Connection;
     addMessage: (msg: Message) => void;
     setProcessing: (status: boolean) => void;
-    setConnection: (url: string, key: string, openaiKey: string, schema?: TableSchema[]) => void;
+
+    // Unified Connect Action
+    connectSupabase: (url: string, key: string, openaiKey: string, schema?: TableSchema[]) => void;
+    connectZoho: (accessToken: string, apiDomain: string, openaiKey: string, schema?: TableSchema[]) => void;
+
     disconnect: () => void;
     clearChat: () => void;
+    setBusinessContext: (context: string) => void;
 }
 
 export const useChatStore = create<ChatStore>((set) => ({
     messages: [{
         id: 'init',
         role: 'ai',
-        content: 'Welcome to Zero-UI Admin. Ask me anything about your data.',
+        content: 'Welcome to Zero-UI Admin. Connect a data source to begin.',
         timestamp: Date.now()
     }],
     isProcessing: false,
     connection: {
-        url: '',
-        key: '',
+        isConnected: false,
+        provider: 'supabase', // Default
         openaiKey: '',
         schema: [],
-        isConnected: false
+        onboardingComplete: false
     },
     addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
     setProcessing: (status) => set({ isProcessing: status }),
-    setConnection: (url, key, openaiKey, schema) => set({
-        connection: { url, key, openaiKey, schema, isConnected: true },
+
+    connectSupabase: (url, key, openaiKey, schema) => set({
+        connection: {
+            isConnected: true,
+            provider: 'supabase',
+            supabaseUrl: url,
+            supabaseKey: key,
+            openaiKey,
+            schema,
+            onboardingComplete: false
+        },
         messages: [{
             id: `sys-${Date.now()}`,
             role: 'ai',
-            content: 'Connected to new database. Schema loaded. Ask me anything!',
+            content: `Connected to Supabase! I found these tables: **${(schema || []).map(t => t.name).join(', ')}**. Tell me about your data - what does each table represent?`,
             timestamp: Date.now()
         }]
     }),
+
+    connectZoho: (accessToken, apiDomain, openaiKey, schema) => set({
+        connection: {
+            isConnected: true,
+            provider: 'zoho',
+            zohoAccessToken: accessToken,
+            zohoApiDomain: apiDomain,
+            openaiKey,
+            schema,
+            onboardingComplete: false
+        },
+        messages: [{
+            id: `sys-${Date.now()}`,
+            role: 'ai',
+            content: `Connected to Zoho CRM! I found these modules: **${(schema || []).map(t => t.name).join(', ')}**. Tell me about your CRM data - what do you track in each module?`,
+            timestamp: Date.now()
+        }]
+    }),
+
     disconnect: () => set({
-        connection: { url: '', key: '', openaiKey: '', isConnected: false },
+        connection: { isConnected: false, provider: 'supabase', openaiKey: '', schema: [], onboardingComplete: false },
         messages: [{
             id: `sys-${Date.now()}`,
             role: 'ai',
@@ -69,5 +115,8 @@ export const useChatStore = create<ChatStore>((set) => ({
             timestamp: Date.now()
         }]
     }),
-    clearChat: () => set({ messages: [] })
+    clearChat: () => set({ messages: [] }),
+    setBusinessContext: (context) => set((state) => ({
+        connection: { ...state.connection, businessContext: context, onboardingComplete: true }
+    }))
 }));
