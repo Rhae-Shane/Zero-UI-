@@ -1,97 +1,79 @@
-import {
-    LineChart, Line, BarChart, Bar, XAxis, YAxis,
-    CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
-} from 'recharts';
-import useStore from '../../store/useStore';
+import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
 
-interface GenerativeChartProps {
-    type: 'line' | 'bar' | 'area';
-    dataKey: 'revenue' | 'leads'; // Expandable
-    title?: string;
+interface ChartProps {
+    title: string;
+    type: 'line' | 'bar' | 'pie';
+    data: any[];
+    xKey?: string;
+    yKey?: string; // For line/bar
+    dataKey?: string; // For pie
     color?: string;
 }
 
-export function GenerativeChart({
-    type,
-    dataKey,
-    title,
-    color = '#8884d8'
-}: GenerativeChartProps) {
-    const store = useStore();
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
-    // Dynamic Data Selection
-    const data = dataKey === 'revenue'
-        ? store.revenue
-        : store.leads.map(l => ({ name: l.name, value: l.value })); // Simple transformation for leads
-
-    // Determine X-Axis key
-    const xAxisKey = dataKey === 'revenue' ? 'date' : 'name';
-    // Determine Data Value key
-    const valKey = dataKey === 'revenue' ? 'amount' : 'value';
-
-    const renderChart = () => {
-        const CommonProps = {
-            data,
-            margin: { top: 10, right: 30, left: 0, bottom: 0 }
-        };
-
-        switch (type) {
-            case 'bar':
-                return (
-                    <BarChart {...CommonProps}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                        <XAxis dataKey={xAxisKey} stroke="rgba(255,255,255,0.5)" fontSize={12} />
-                        <YAxis stroke="rgba(255,255,255,0.5)" fontSize={12} />
-                        <Tooltip
-                            contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#fff' }}
-                            itemStyle={{ color: '#fff' }}
-                        />
-                        <Bar dataKey={valKey} fill={color} radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                );
-            case 'area':
-                return (
-                    <AreaChart {...CommonProps}>
-                        <defs>
-                            <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor={color} stopOpacity={0.8} />
-                                <stop offset="95%" stopColor={color} stopOpacity={0} />
-                            </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                        <XAxis dataKey={xAxisKey} stroke="rgba(255,255,255,0.5)" fontSize={12} />
-                        <YAxis stroke="rgba(255,255,255,0.5)" fontSize={12} />
-                        <Tooltip
-                            contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#fff' }}
-                            itemStyle={{ color: '#fff' }}
-                        />
-                        <Area type="monotone" dataKey={valKey} stroke={color} fillOpacity={1} fill="url(#colorValue)" />
-                    </AreaChart>
-                );
-            default: // Line
-                return (
-                    <LineChart {...CommonProps}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                        <XAxis dataKey={xAxisKey} stroke="rgba(255,255,255,0.5)" fontSize={12} />
-                        <YAxis stroke="rgba(255,255,255,0.5)" fontSize={12} />
-                        <Tooltip
-                            contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#fff' }}
-                            itemStyle={{ color: '#fff' }}
-                        />
-                        <Line type="monotone" dataKey={valKey} stroke={color} strokeWidth={2} dot={{ fill: color, r: 4 }} activeDot={{ r: 8 }} />
-                    </LineChart>
-                );
-        }
-    };
-
+export function GenerativeChart({ title, type, data, xKey = 'name', yKey = 'value', dataKey = 'value', color = '#8884d8' }: ChartProps) {
     return (
-        <div className="w-full h-[300px] bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl p-6 shadow-xl animate-in fade-in zoom-in duration-300">
-            <h3 className="text-lg font-semibold text-white/90 mb-4">
-                {title || `Analytics: ${dataKey.toUpperCase()}`}
-            </h3>
-            <ResponsiveContainer width="100%" height="100%">
-                {renderChart()}
+        <div className="w-full h-[400px] bg-white/5 backdrop-blur-md border border-white/10 rounded-xl p-6 animate-in fade-in zoom-in duration-500">
+            <h3 className="text-lg font-semibold text-white mb-6">{title}</h3>
+            <ResponsiveContainer width="100%" height="90%">
+                {renderChart(type, data, xKey, yKey, dataKey, color)}
             </ResponsiveContainer>
         </div>
     );
+}
+
+function renderChart(type: string, data: any[], xKey: string, yKey: string, dataKey: string, color: string) {
+    switch (type) {
+        case 'line':
+            return (
+                <LineChart data={data}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                    <XAxis dataKey={xKey} stroke="#ffffff50" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#ffffff50" fontSize={12} tickLine={false} axisLine={false} />
+                    <Tooltip
+                        contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }}
+                        itemStyle={{ color: '#fff' }}
+                    />
+                    <Line type="monotone" dataKey={yKey} stroke={color} strokeWidth={3} dot={{ fill: color, strokeWidth: 2 }} role="img" />
+                </LineChart>
+            );
+        case 'bar':
+            return (
+                <BarChart data={data}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                    <XAxis dataKey={xKey} stroke="#ffffff50" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#ffffff50" fontSize={12} tickLine={false} axisLine={false} />
+                    <Tooltip
+                        contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }}
+                        itemStyle={{ color: '#fff' }}
+                    />
+                    <Bar dataKey={yKey} fill={color} radius={[4, 4, 0, 0]} role="img" />
+                </BarChart>
+            );
+        case 'pie':
+            return (
+                <PieChart>
+                    <Tooltip
+                        contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }}
+                        itemStyle={{ color: '#fff' }}
+                    />
+                    <Pie
+                        data={data}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={5}
+                        dataKey={dataKey}
+                    >
+                        {data.map((_entry: any, index: number) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                    </Pie>
+                </PieChart>
+            );
+        default:
+            return <div className="text-white/50">Unsupported chart type</div>;
+    }
 }

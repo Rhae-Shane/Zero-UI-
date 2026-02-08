@@ -1,100 +1,99 @@
-const API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
-
-if (!API_KEY) {
-    console.error("Missing VITE_OPENAI_API_KEY in .env file");
-}
+import OpenAI from 'openai';
 
 export interface UIInstruction {
     id: string;
-    component: 'GenerativeTable' | 'GenerativeChart' | 'GenerativeKPI' | 'GenerativeForm' | 'ActionGuard' | 'SystemMessage';
+    component: 'GenerativeTable' | 'GenerativeChart' | 'GenerativeKPI' | 'GenerativeInsight' | 'ActionGuard';
     props: any;
     message?: string;
 }
 
 const SYSTEM_PROMPT = `
 You are "Tambo", an AI output engine.
-Your sole purpose is to output valid JSON for a UI renderer.
+Your sole purpose is to output valid JSON for a UI renderer based on business data intents.
 
 OUTPUT FORMAT:
 Return a JSON Object with a "ui" key containing an Array of Component Instructions.
-Example:
-{
-  "ui": [
-    {
-      "component": "GenerativeTable",
-      "props": {
-        "title": "Active Leads",
-        "dataContext": "leads",
-        "filter": { "key": "status", "value": "New" }
-      },
-      "message": "Here are the new leads."
-    }
-  ]
-}
 
 AVAILABLE COMPONENTS:
-1. GenerativeTable (props: title, dataContext: 'leads'|'users'|'revenue', filter, sortBy)
-2. GenerativeChart (props: title, type: 'line'|'bar'|'area', dataKey: 'revenue'|'leads', color)
-3. GenerativeKPI (props: label, value, trend, trendLabel, context: 'positive'|'negative')
-4. GenerativeForm (props: title, onSubmitIntent, fields: [{name, label, type}])
-5. ActionGuard (props: title, description, impactMetrics)
-6. SystemMessage (props: {}, message: string) - Use this for general chat responses.
+1. GenerativeTable
+   - props: title (string), data (array of objects), columns (array of {key, label})
+   - Use for list views.
+
+2. GenerativeChart
+   - props: title (string), type ('line'|'bar'|'pie'), data (array), xKey (string), yKey (string), color (string)
+   - Use for trends and comparisons.
+
+3. GenerativeKPI
+   - props: label (string), value (string/number), trend (number, optional), trendLabel (string, optional), context ('positive'|'negative'|'neutral')
+   - Use for single metrics.
+
+4. GenerativeInsight
+   - props: title (string), content (string), severity ('info'|'warning'|'success')
+   - Use for textual analysis or explanations.
+
+RULES:
+- Do NOT make up data. You will receive data from an adapter.
+- If data is missing, return a GenerativeInsight explaining why.
+- Choose the BEST visualization for the data.
 `;
 
-export async function processIntent(input: string): Promise<UIInstruction[]> {
+export async function determineUI(intent: any, data: any, apiKey?: string): Promise<UIInstruction[]> {
     try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${API_KEY}`
-            },
-            body: JSON.stringify({
-                model: "gpt-4o-mini", // Optimized for speed (approx 2x faster than 4o)
-                messages: [
-                    { role: "system", content: SYSTEM_PROMPT },
-                    { role: "user", content: `User Input: "${input}"` }
-                ],
-                temperature: 0.1,
-                response_format: { type: "json_object" }
-            })
+        const keyToUse = apiKey || import.meta.env.VITE_OPENAI_API_KEY;
+        if (!keyToUse) throw new Error("Missing OpenAI API Key");
+
+        const client = new OpenAI({
+            apiKey: keyToUse,
+            dangerouslyAllowBrowser: true
         });
 
-        if (!response.ok) {
-            const errData = await response.json();
-            throw new Error(errData.error?.message || response.statusText);
-        }
+        const prompt = `
+        Context:
+        Intent: ${JSON.stringify(intent)}
+        Data: ${JSON.stringify(data).substring(0, 5000)} // Truncate if too large
 
-        const data = await response.json();
-        const content = data.choices[0].message.content;
+        Decide the best UI to render this data.
+        `;
 
-        console.log("AI Raw Output:", content); // Debug logging
+        const completion = await client.chat.completions.create({
+            messages: [
+                { role: "system", content: SYSTEM_PROMPT },
+                { role: "user", content: prompt }
+            ],
+            model: "gpt-4o",
+            response_format: { type: "json_object" }
+        });
 
-        let instructions: any = JSON.parse(content);
+        const text = completion.choices[0].message.content;
+        console.log("Tambo Raw Output:", text);
 
-        // Normalize structure to always be UIInstruction[]
+        let instructions: any = JSON.parse(text || "{}");
+
+        // Normalize structure
         if (instructions.ui && Array.isArray(instructions.ui)) {
             instructions = instructions.ui;
         } else if (Array.isArray(instructions)) {
             // Keep as is
         } else {
-            // Wrap single object
             instructions = [instructions];
         }
 
-        // Add IDs if missing
         return instructions.map((i: any, idx: number) => ({
             ...i,
             id: i.id || `gen-${Date.now()}-${idx}`
         })) as UIInstruction[];
 
     } catch (error: any) {
-        console.error("OpenAI API Error:", error);
+        console.error("Tambo Error:", error);
         return [{
             id: 'error-fallback',
-            component: 'SystemMessage',
-            props: {},
-            message: `Brain Error: ${error.message}. Check console for details.`
+            component: 'GenerativeInsight',
+            props: {
+                title: "Error",
+                content: `Failed to generate UI: ${error.message}`,
+                severity: "warning"
+            },
+            message: "Something went wrong."
         }];
     }
 }

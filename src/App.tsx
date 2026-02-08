@@ -1,227 +1,187 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, Sparkles, Command } from 'lucide-react';
-import { processIntent, type UIInstruction } from './lib/tambo';
-
-// Primitives
+import { useState, useRef, useEffect } from 'react';
+import { Send, Sparkles, Loader2 } from 'lucide-react';
+import { useChatStore } from './store/chatStore';
+import { classifyIntent } from './lib/openai';
+import { processIntent } from './lib/adapters/SupabaseAdapter';
+import { determineUI } from './lib/tambo';
 import { GenerativeTable } from './components/generative/GenerativeTable';
 import { GenerativeChart } from './components/generative/GenerativeChart';
 import { GenerativeKPI } from './components/generative/GenerativeKPI';
-import { GenerativeForm } from './components/generative/GenerativeForm';
-import { ActionGuard } from './components/generative/ActionGuard';
-
-// UI
-import { clsx } from 'clsx';
-
-interface Message {
-  role: 'user' | 'system';
-  content: string;
-  ui?: UIInstruction[];
-}
+import { GenerativeInsight } from './components/generative/GenerativeInsight';
+// @ts-ignore
+import { ConnectionModal } from './components/ConnectionModal';
+import { Database, Plug } from 'lucide-react';
 
 function App() {
+  const { messages, addMessage, isProcessing, setProcessing, connection } = useChatStore();
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<Message[]>([
-    { role: 'system', content: 'Zero-UI Admin initialized. Standing by for intent.' }
-  ]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Action Guard State (Global for MVP simplicity)
-  const [guardState, setGuardState] = useState<{ isOpen: boolean, props?: any }>({ isOpen: false });
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isProcessing]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isProcessing) return;
 
-    const userText = input;
+    if (!connection.isConnected) {
+      setIsConnectModalOpen(true);
+      return;
+    }
+
+    const userMsg = input.trim();
     setInput('');
-    setIsProcessing(true);
+    addMessage({ id: Date.now().toString(), role: 'user', content: userMsg, timestamp: Date.now() });
+    setProcessing(true);
 
-    // 1. Add User Message
-    setMessages(prev => [...prev, { role: 'user', content: userText }]);
-
-    // 2. Process Intent (Tambo SDK / Fail-Safe)
     try {
-      const instructions = await processIntent(userText);
-      const systemMsg = instructions[0]?.message || 'Start rendering...';
+      // 1. Understand Intent
+      const intent = await classifyIntent(userMsg, connection.openaiKey, connection.schema);
+      console.log("Intent:", intent);
 
-      // 3. Handle Special "Guard" Instructions Interception
-      const guardInstruction = instructions.find(i => i.component === 'ActionGuard');
-      if (guardInstruction) {
-        setGuardState({ isOpen: true, props: guardInstruction.props });
-        setMessages(prev => [...prev, { role: 'system', content: systemMsg }]); // Just show text
-      } else {
-        // Normal Rendering
-        setMessages(prev => [...prev, { role: 'system', content: systemMsg, ui: instructions }]);
-      }
+      // 2. Fetch Data
+      const data = await processIntent(intent, connection);
+      console.log("Data:", data);
 
-    } catch (err) {
-      setMessages(prev => [...prev, { role: 'system', content: 'Error processing intent. Try again.' }]);
+      // 3. Generate UI Instructions
+      const instructions = await determineUI(intent, data, connection.openaiKey);
+      console.log("UI:", instructions);
+
+      addMessage({
+        id: (Date.now() + 1).toString(),
+        role: 'ai',
+        uiInstructions: instructions,
+        timestamp: Date.now()
+      });
+
+    } catch (error: any) {
+      console.error(error);
+      addMessage({
+        id: (Date.now() + 1).toString(),
+        role: 'ai',
+        uiInstructions: [{
+          id: 'err',
+          component: 'GenerativeInsight',
+          props: {
+            title: "I couldn't process that request",
+            content: error.message || "Unknown error occurred",
+            severity: "warning"
+          }
+        }],
+        timestamp: Date.now()
+      });
     } finally {
-      setIsProcessing(false);
+      setProcessing(false);
     }
   };
 
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isProcessing]);
-
-
-  // --- RENDER ENGINE ---
-  const renderComponent = (instruction: UIInstruction) => {
+  const renderComponent = (instruction: any) => {
     const { component, props, id } = instruction;
-
     switch (component) {
-      case 'GenerativeTable':
-        return <GenerativeTable key={id} {...props} />;
-      case 'GenerativeChart':
-        return <GenerativeChart key={id} {...props} />;
-      case 'GenerativeKPI':
-        return <GenerativeKPI key={id} {...props} />;
-      case 'GenerativeForm':
-        return <GenerativeForm key={id} {...props} />;
-      default:
-        return null;
+      case 'GenerativeTable': return <GenerativeTable key={id} {...props} />;
+      case 'GenerativeChart': return <GenerativeChart key={id} {...props} />;
+      case 'GenerativeKPI': return <GenerativeKPI key={id} {...props} />;
+      case 'GenerativeInsight': return <GenerativeInsight key={id} {...props} />;
+      default: return <div key={id} className="text-red-500">Unknown Component: {component}</div>;
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30">
+    <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans selection:bg-indigo-500/30">
+      <div className="max-w-4xl mx-auto flex flex-col h-screen">
 
-      {/* Background Ambience */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-500/20 rounded-full blur-[128px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-500/20 rounded-full blur-[128px]" />
-      </div>
-
-      <div className="max-w-5xl mx-auto flex flex-col h-screen relative z-10">
-
-        {/* Header (Minimal) */}
-        <header className="p-6 flex items-center gap-3 border-b border-white/5 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-20">
-          <div className="p-2 bg-blue-600 rounded-lg shadow-lg shadow-blue-600/20">
-            <Command size={20} className="text-white" />
+        {/* Header */}
+        <header className="p-6 border-b border-white/5 flex items-center justify-between bg-neutral-950/50 backdrop-blur-xl sticky top-0 z-10">
+          <div className="flex items-center gap-3">
+            <div className="bg-indigo-500/20 p-2 rounded-lg">
+              <Sparkles className="text-indigo-400" size={24} />
+            </div>
+            <div>
+              <h1 className="font-bold text-xl tracking-tight">Zero-UI Admin</h1>
+              <p className="text-xs text-neutral-500 font-medium uppercase tracking-wider">AI Native • Phase 2</p>
+            </div>
           </div>
-          <h1 className="font-bold text-xl tracking-tight text-white/90">Zero-UI Admin</h1>
-          <div className="ml-auto flex gap-2">
-            <span className="px-3 py-1 bg-white/5 rounded-full text-xs font-mono text-white/50 border border-white/5">
-              Tambo SDK: Connected
-            </span>
-          </div>
+
+          <button
+            onClick={() => setIsConnectModalOpen(true)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${connection.isConnected
+              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'
+              : 'bg-white/5 border-white/10 text-neutral-400 hover:bg-white/10'
+              }`}
+          >
+            {connection.isConnected ? <Plug size={14} /> : <Database size={14} />}
+            {connection.isConnected
+              ? (
+                <span>
+                  Connected: <span className="opacity-75">{connection.url.split('.')[0].replace('https://', '')}</span>
+                </span>
+              )
+              : 'Connect DB'
+            }
+          </button>
         </header>
 
-        {/* Dynamic Canvas (Chat + Generative UI) */}
-        <main className="flex-1 overflow-y-auto p-6 space-y-8 scroll-smooth pb-32">
-          {messages.map((msg, idx) => (
-            <div
-              key={idx}
-              className={clsx(
-                "flex gap-4 max-w-4xl mx-auto",
-                msg.role === 'user' ? "justify-end" : "justify-start"
-              )}
-            >
-              {msg.role === 'system' && (
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shadow-lg shadow-purple-500/20 mt-1 flex-shrink-0">
-                  <Sparkles size={14} className="text-white" />
-                </div>
-              )}
+        {/* Chat Area */}
+        <main className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+          {messages.map((msg) => (
+            <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
 
-              <div className={clsx(
-                "flex flex-col gap-4 max-w-[85%]",
-                msg.role === 'user' ? "items-end" : "items-start"
-              )}>
-                {/* Text Bubble */}
-                <div className={clsx(
-                  "px-5 py-3 rounded-2xl text-sm leading-relaxed shadow-sm",
-                  msg.role === 'user'
-                    ? "bg-white text-slate-900 font-medium rounded-tr-none"
-                    : "bg-white/5 border border-white/10 text-white/80 rounded-tl-none backdrop-blur-sm"
-                )}>
+              {/* Message Bubble (Text) */}
+              {msg.content && (
+                <div className={`max-w-[80%] px-5 py-3 rounded-2xl mb-2 text-sm leading-relaxed ${msg.role === 'user'
+                  ? 'bg-indigo-600 text-white rounded-br-none'
+                  : 'bg-white/10 text-neutral-200 rounded-bl-none'
+                  }`}>
                   {msg.content}
                 </div>
+              )}
 
-                {/* Generative UI Output */}
-                {msg.ui && (
-                  <div className="w-full space-y-4 animate-in fade-in duration-500 slide-in-from-bottom-2">
-                    {msg.ui.map(instruction => (
-                      <div key={instruction.id} className="w-full">
-                        {renderComponent(instruction)}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {/* Generative UI Container */}
+              {msg.uiInstructions && (
+                <div className="w-full max-w-3xl space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  {msg.uiInstructions.map(renderComponent)}
+                </div>
+              )}
             </div>
           ))}
 
           {isProcessing && (
-            <div className="flex gap-4 max-w-4xl mx-auto">
-              <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center animate-pulse">
-                <Bot size={16} className="text-white/30" />
-              </div>
-              <div className="flex items-center gap-1 h-8">
-                <div className="w-1.5 h-1.5 bg-white/30 rounded-full animate-bounce delay-0" />
-                <div className="w-1.5 h-1.5 bg-white/30 rounded-full animate-bounce delay-100" />
-                <div className="w-1.5 h-1.5 bg-white/30 rounded-full animate-bounce delay-200" />
-              </div>
+            <div className="flex items-center gap-2 text-neutral-500 text-sm pl-4 animate-pulse">
+              <Loader2 className="animate-spin" size={16} />
+              <span>Thinking...</span>
             </div>
           )}
-          <div ref={scrollRef} />
+          <div ref={bottomRef} />
         </main>
 
-        {/* Command Bar */}
-        <div className="p-6 sticky bottom-0 z-20 bg-gradient-to-t from-slate-900 via-slate-900 to-transparent">
-          <div className="max-w-2xl mx-auto relative group">
-            <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl blur opacity-20 group-hover:opacity-30 transition-opacity duration-500" />
-            <form
-              onSubmit={handleSubmit}
-              className="relative bg-slate-800/80 backdrop-blur-xl border border-white/10 rounded-xl flex items-center shadow-2xl"
+        {/* Input Area */}
+        <div className="p-6 border-t border-white/5 bg-neutral-950/50 backdrop-blur-xl">
+          <form onSubmit={handleSubmit} className="relative max-w-3xl mx-auto">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={connection.isConnected ? "Ask about your data..." : "Connect a database to start..."}
+              disabled={!connection.isConnected}
+              className="w-full bg-white/5 border border-white/10 rounded-full pl-6 pr-14 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-transparent transition-all placeholder:text-neutral-600 text-neutral-200 shadow-xl shadow-black/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              autoFocus
+            />
+            <button
+              type="submit"
+              disabled={isProcessing || !input.trim() || !connection.isConnected}
+              className="absolute right-2 top-2 p-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask Tambo to show leads, analyze data, or execute actions..."
-                className="flex-1 bg-transparent border-none text-white placeholder-white/30 px-6 py-4 focus:ring-0 focus:outline-none"
-                autoFocus
-              />
-              <button
-                type="submit"
-                disabled={!input.trim() || isProcessing}
-                className="p-3 mr-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                {isProcessing ? <Bot size={20} className="animate-pulse" /> : <Send size={20} />}
-              </button>
-            </form>
-            <div className="text-center mt-3">
-              <p className="text-[10px] text-white/20 uppercase tracking-widest font-semibold">
-                Powered by Tambo Generative SDK
-              </p>
-            </div>
-          </div>
+              <Send size={20} />
+            </button>
+          </form>
         </div>
 
-        {/* AI Action Guard Modal */}
-        <ActionGuard
-          isOpen={guardState.isOpen}
-          title={guardState.props?.title || ''}
-          description={guardState.props?.description || ''}
-          impactMetrics={guardState.props?.impactMetrics || []}
-          onConfirm={() => {
-            setGuardState({ isOpen: false });
-            setMessages(prev => [...prev, {
-              role: 'system',
-              content: 'Action confirmed. Execution logic would run here.'
-            }]);
-          }}
-          onCancel={() => {
-            setGuardState({ isOpen: false });
-            setMessages(prev => [...prev, {
-              role: 'system',
-              content: 'Action cancelled by user.'
-            }]);
-          }}
+        <ConnectionModal
+          isOpen={isConnectModalOpen}
+          onClose={() => setIsConnectModalOpen(false)}
         />
-
       </div>
     </div>
   );

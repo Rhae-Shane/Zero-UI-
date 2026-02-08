@@ -56,6 +56,11 @@ export function GenerativeKPI({
                     </span>
                 </div>
             )}
+            {value === 0 && context === 'neutral' && (
+                <div className="mt-2 text-xs text-amber-500 bg-amber-500/10 p-2 rounded border border-amber-500/20">
+                    Is this expected? If not, check Supabase RLS policies.
+                </div>
+            )}
         </div>
     );
 }
