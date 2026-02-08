@@ -20,39 +20,7 @@ export interface Intent {
     timeframe?: string;
 }
 
-const INTENT_PROMPT = `
-You are an intent classifier for a business analytics dashboard.
-User inputs will be natural language queries about business data.
-Map them to ONE of these intents:
-
-1. VIEW_LIST: User wants to see a list of items (e.g., "Show recent users", "List all orders").
-2. ANALYZE_METRIC: User wants a single number or trend (e.g., "What is the churn rate?", "Total revenue").
-3. COMPARE_METRIC: User wants to compare data (e.g., "Compare this month vs last month", "Revenue by plan").
-
-AVAILABLE TABLES (Entities):
-- "users"
-- "orders"
-- "subscriptions"
-- "trades"     // Legacy support
-- "payments"   // Legacy support
-
-RULES:
-- ONLY use the entities listed above.
-- If the user asks for "signups", map to "users".
-- If the user asks for "revenue", map to "subscriptions" or "payments" depending on what seems most relevant (default to subscriptions for SaaS context).
-- For "ANALYZE_METRIC", the "metric" field MUST be one of: "count", "sum", "avg". Default to "count" if unspecified.
-
-Return a JSON object with:
-- type: The IntentType
-- entity: The valid entity name (users, orders, subscriptions)
-- metric: The specific metric (count, sum, avg)
-- timeframe: Any time constraints (last 30 days, today, etc.)
-
-Example Input: "Show me daily signups for the last week"
-Example Output: { "type": "ANALYZE_METRIC", "entity": "users", "metric": "count", "timeframe": "last 7 days" }
-`;
-
-// ... imports ...
+// Dynamic prompt is constructed in classifyIntent function
 
 interface TableSchema {
     name: string;
